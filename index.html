@@ -9,6 +9,11 @@
     body { -webkit-tap-highlight-color: transparent; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    @keyframes spin-once {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spinning { animation: spin-once 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen pb-16">
@@ -53,6 +58,10 @@
           <span id="current-user-badge" class="text-xs text-emerald-400 font-medium">👤 Гість</span>
         </div>
         <div class="flex items-center gap-2">
+          <button id="refresh-btn" onclick="manualRefresh()" title="Синхронізувати" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition">
+            <span id="refresh-icon" class="inline-block text-sm">🔄</span>
+            <span>Синхро</span>
+          </button>
           <button id="lock-btn" onclick="toggleLockDay()" class="px-2.5 py-1 rounded-xl text-xs font-semibold border transition active:scale-95 bg-slate-900 border-slate-800 text-slate-300">
             🔓 Відкрито
           </button>
@@ -155,17 +164,13 @@
     let revealedStudentIndex = null;
     let revealTimer = null;
 
-    let db = JSON.parse(localStorage.getItem('journal_cache_v11') || '{}');
+    let db = JSON.parse(localStorage.getItem('journal_cache_v13') || '{}');
     if (!db.pins) {
       db.pins = {
         starosta: "1111",
         zam: "1111"
       };
     }
-
-    let hasPendingChanges = false;
-    let syncPushTimer = null;
-    let lastETag = null;
 
     function getTodayFormatted() {
       const now = new Date();
@@ -178,7 +183,7 @@
     let selectedDate = getTodayFormatted();
 
     function saveLocal() {
-      localStorage.setItem('journal_cache_v11', JSON.stringify(db));
+      localStorage.setItem('journal_cache_v13', JSON.stringify(db));
     }
 
     function createDefaultPairData() {
@@ -222,7 +227,6 @@
     }
 
     function changeDay(delta) {
-      flushSyncNow();
       const [year, month, day] = selectedDate.split('-').map(Number);
       const d = new Date(year, month - 1, day + delta);
       
@@ -237,7 +241,6 @@
     }
 
     function setToday() {
-      flushSyncNow();
       selectedDate = getTodayFormatted();
       currentPair = 1;
       updateDateDisplay();
@@ -262,15 +265,15 @@
 
       saveLocal();
       render();
-      queueSyncPush();
+      pushImmediate();
     }
 
-    function flushSyncNow() {
-      if (!hasPendingChanges || BIN_ID.includes("__JSONBIN")) return;
-      clearTimeout(syncPushTimer);
-      hasPendingChanges = false;
+    // МИТТЄВА ВІДПРАВКА БЕЗ ЗАТРИМКИ
+    async function pushImmediate() {
+      if (BIN_ID.includes("__JSONBIN")) return;
+      document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-amber-400 animate-pulse";
       try {
-        fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+        await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
           method: 'PUT',
           keepalive: true,
           headers: {
@@ -279,65 +282,46 @@
           },
           body: JSON.stringify(db)
         });
-      } catch (e) {}
+        document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
+      } catch (e) {
+        document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
+      }
     }
 
-    function queueSyncPush() {
-      if (BIN_ID.includes("__JSONBIN")) return;
-      hasPendingChanges = true;
+    // РУЧНА СИНХРОНІЗАЦІЯ
+    async function manualRefresh() {
+      const icon = document.getElementById('refresh-icon');
+      icon.classList.add('spinning');
       document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-amber-400";
-      
-      clearTimeout(syncPushTimer);
-      syncPushTimer = setTimeout(async () => {
-        try {
-          const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
-            method: 'PUT',
-            keepalive: true,
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Master-Key': API_KEY
-            },
-            body: JSON.stringify(db)
-          });
-          if (res.ok) {
-            const etag = res.headers.get('etag');
-            if (etag) lastETag = etag;
-          }
-          hasPendingChanges = false;
-          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
-        } catch (e) {
-          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
-        }
-      }, 200);
+
+      await syncPull();
+
+      setTimeout(() => {
+        icon.classList.remove('spinning');
+      }, 600);
     }
 
     async function syncPull() {
-      if (hasPendingChanges || BIN_ID.includes("__JSONBIN")) return;
+      if (BIN_ID.includes("__JSONBIN")) return;
       try {
-        const headers = { 'X-Master-Key': API_KEY };
-        if (lastETag) {
-          headers['If-None-Match'] = lastETag;
-        }
-
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers });
-        
-        if (res.status === 304) {
-          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
-          return;
-        }
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+          headers: { 'X-Master-Key': API_KEY }
+        });
 
         if (res.ok) {
-          const etag = res.headers.get('etag');
-          if (etag) lastETag = etag;
-
           const data = await res.json();
           if (data.record && Object.keys(data.record).length > 0 && !data.record.status && !data.record.test) {
-            db = data.record;
-            if (!db.pins) {
-              db.pins = { starosta: "1111", zam: "1111" };
+            const serverStr = JSON.stringify(data.record);
+            const localStr = JSON.stringify(db);
+            
+            if (serverStr !== localStr) {
+              db = data.record;
+              if (!db.pins) {
+                db.pins = { starosta: "1111", zam: "1111" };
+              }
+              saveLocal();
+              render();
             }
-            saveLocal();
-            render();
             document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
           }
         }
@@ -385,7 +369,7 @@
         if (!db.pins) db.pins = {};
         db.pins[selectedRole] = p1;
         saveLocal();
-        queueSyncPush();
+        pushImmediate();
         document.getElementById('change-pin-modal').classList.add('hidden');
         syncPull().then(() => render());
       } else {
@@ -394,7 +378,6 @@
     }
 
     function logout() {
-      flushSyncNow();
       localStorage.removeItem('demo_user');
       localStorage.removeItem('demo_role');
       location.reload();
@@ -412,7 +395,7 @@
       currentPair = nextPairNum;
       saveLocal();
       render();
-      queueSyncPush();
+      pushImmediate();
     }
 
     function deletePair(pairNum, event) {
@@ -434,11 +417,10 @@
 
       saveLocal();
       render();
-      queueSyncPush();
+      pushImmediate();
     }
 
     function switchPair(pairNum) {
-      flushSyncNow();
       currentPair = pairNum;
       render();
     }
@@ -478,7 +460,7 @@
 
       saveLocal();
       render();
-      queueSyncPush();
+      pushImmediate();
     }
 
     function clearLogs() {
@@ -486,7 +468,7 @@
       day.logs = [];
       saveLocal();
       render();
-      queueSyncPush();
+      pushImmediate();
     }
 
     function render() {
@@ -605,24 +587,12 @@
 
     document.getElementById('native-date-input').addEventListener('change', (e) => {
       if (e.target.value) {
-        flushSyncNow();
         selectedDate = e.target.value;
         currentPair = 1;
         updateDateDisplay();
         render();
       }
     });
-
-    // Гарантований досил даних при згортанні браузера чи закритті вкладки
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        flushSyncNow();
-      }
-    });
-    window.addEventListener('pagehide', flushSyncNow);
-    window.addEventListener('beforeunload', flushSyncNow);
-
-    setInterval(syncPull, 1500);
 
     updateDateDisplay();
     if (currentUser) {
