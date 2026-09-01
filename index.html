@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Журнал Відвідуваності</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen pb-16">
+
+  <div id="login-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-xs rounded-3xl p-6 shadow-2xl">
+      <h2 class="text-lg font-bold text-center mb-4 text-emerald-400">Хто відмічає?</h2>
+      
+      <div class="grid grid-cols-2 gap-2 mb-4">
+        <button onclick="selectUser('starosta')" id="btn-user-starosta" class="p-3 rounded-2xl border border-emerald-500 bg-emerald-500/10 font-bold text-emerald-400 text-sm">Староста</button>
+        <button onclick="selectUser('zam')" id="btn-user-zam" class="p-3 rounded-2xl border border-slate-800 bg-slate-800/60 font-medium text-slate-400 text-sm">Зам</button>
+      </div>
+
+      <input type="password" id="pin-input" placeholder="ПІН-код" maxlength="6" inputmode="numeric" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-emerald-500 mb-4 text-white">
+      
+      <button onclick="login()" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold py-3.5 rounded-2xl transition shadow-lg shadow-emerald-500/20">Увійти</button>
+      <p id="login-error" class="text-rose-400 text-xs text-center mt-2 hidden">Невірний PIN!</p>
+    </div>
+  </div>
+
+  <div id="change-pin-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-xs rounded-3xl p-6 shadow-2xl">
+      <h2 class="text-lg font-bold text-center mb-2 text-emerald-400">Зміна дефолтного PIN</h2>
+      <p class="text-xs text-slate-400 text-center mb-4">Придумай новий PIN-код (4-6 цифр) для свого акаунта</p>
+      
+      <input type="password" id="new-pin-input" placeholder="Новий PIN" maxlength="6" inputmode="numeric" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-emerald-500 mb-3 text-white">
+      <input type="password" id="confirm-pin-input" placeholder="Повтори новий PIN" maxlength="6" inputmode="numeric" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-emerald-500 mb-4 text-white">
+      
+      <button onclick="saveNewPin()" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold py-3.5 rounded-2xl transition shadow-lg shadow-emerald-500/20">Зберегти PIN</button>
+      <p id="pin-change-error" class="text-rose-400 text-xs text-center mt-2 hidden">PIN-коди не співпадають або менше 4 цифр!</p>
+    </div>
+  </div>
+
+  <div class="max-w-xl mx-auto px-4">
+    <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-900 pt-3 pb-2 -mx-4 px-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="font-bold text-base tracking-tight text-white flex items-center gap-2">
+            Журнал Групи
+            <span id="sync-status" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </h1>
+          <span id="current-user-badge" class="text-xs text-emerald-400 font-medium">👤 Гість</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="lock-btn" onclick="toggleLockDay()" class="px-2.5 py-1 rounded-xl text-xs font-semibold border transition active:scale-95 bg-slate-900 border-slate-800 text-slate-300">
+            🔓 Відкрито
+          </button>
+          <button onclick="logout()" class="text-xs text-slate-500 hover:text-slate-300 p-1">Вийти</button>
+        </div>
+      </div>
+
+      <div class="mt-3 bg-slate-900/90 border border-slate-800/80 rounded-2xl p-2 flex items-center justify-between gap-2">
+        <button type="button" onclick="changeDay(-1)" class="w-9 h-9 flex-shrink-0 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 flex items-center justify-center active:scale-90 font-bold text-lg cursor-pointer">‹</button>
+        
+        <div class="text-center cursor-pointer flex-1 px-1 py-0.5 rounded-xl hover:bg-slate-800/40 transition select-none" onclick="openDatePicker()">
+          <div id="ukr-date-display" class="text-xs font-bold text-slate-200 capitalize leading-tight">...</div>
+          <div id="ukr-subdate-display" class="text-[10px] text-emerald-400 font-mono">...</div>
+          <input type="date" id="native-date-input" class="hidden">
+        </div>
+
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <button type="button" onclick="setToday()" class="px-2.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs text-slate-300 font-medium active:scale-90 cursor-pointer">Сьогодні</button>
+          <button type="button" onclick="changeDay(1)" class="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 flex items-center justify-center active:scale-90 font-bold text-lg cursor-pointer">›</button>
+        </div>
+      </div>
+
+      <div class="mt-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1" id="pairs-container">
+      </div>
+
+      <div class="mt-2 flex gap-2">
+        <div class="relative flex-1">
+          <input type="text" id="search-input" placeholder="Пошук (прізвище/ім'я)..." class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3 pr-8 py-2 text-xs outline-none focus:border-emerald-500 text-slate-200">
+          <button onclick="clearSearch()" id="clear-search" class="hidden absolute right-2.5 top-2 text-xs text-slate-500 hover:text-slate-300">✕</button>
+        </div>
+        <button id="filter-unmarked" onclick="toggleUnmarkedFilter()" class="bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-slate-300 font-medium whitespace-nowrap active:scale-95 transition">Тільки ?</button>
+      </div>
+
+      <div class="mt-2 flex justify-between items-center text-xs font-mono bg-slate-900/60 border border-slate-900 px-3 py-1.5 rounded-xl">
+        <span class="text-slate-400">Є: <b id="count-e" class="text-emerald-400 font-bold">0</b></span>
+        <span class="text-slate-400">З/П: <b id="count-zp" class="text-amber-400 font-bold">0</b></span>
+        <span class="text-slate-400">Н: <b id="count-n" class="text-rose-400 font-bold">0</b></span>
+        <span class="text-slate-400">?: <b id="count-none" class="text-slate-400 font-bold">0</b></span>
+      </div>
+    </header>
+
+    <main class="mt-3 space-y-2" id="students-list">
+    </main>
+
+    <section class="mt-6">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Останні дії на цей день</h3>
+        <button onclick="clearLogs()" class="text-[10px] text-slate-600 hover:text-slate-400">очистити</button>
+      </div>
+      <div id="logs-list" class="bg-slate-900/40 border border-slate-900 rounded-2xl p-3 space-y-1.5 text-[11px] text-slate-400 max-h-36 overflow-y-auto font-mono">
+        <div class="text-slate-600">Дій поки немає...</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const BIN_ID = "__JSONBIN_BIN_ID__";
+    const API_KEY = "__JSONBIN_API_KEY__";
+
+    const RAW_STUDENTS = [
+      "Абрамова Вероніка Сергіївна",
+      "Аксютік Денис Олексійович",
+      "Береза Максим Богданович",
+      "Берсенєв Арсен Вікторович",
+      "Біленський Радомир Олегович",
+      "Гордієнко Андрій Дмитрович",
+      "Горенко Тетяна Олександрівна",
+      "Грещук Максим Сергійович",
+      "Гриценко Павло Олегович",
+      "Гупало Олександр Олексійович",
+      "Гусак Ростислав Романович",
+      "Дігтяр Владислав Олександрович",
+      "Дорошенко Максим Сергійович",
+      "Карпов Денис Олександрович",
+      "Кононенко Ярослав Юрійович",
+      "Лисенко Данило Андрійович",
+      "Мальченко Валерія Сергіївна",
+      "Онацький Костянтин Сергійович",
+      "Осадчий Ярослав Володимирович",
+      "Піка Владислав Анатолійович",
+      "Пуголовка Микита Сергійович",
+      "Руденко Дмитро Сергійович",
+      "Супруненко Михайло Олександрович",
+      "Сурмач Вікторія Валеріївна",
+      "Федорчук Валерія Володимирівна"
+    ];
+
+    const STUDENTS = RAW_STUDENTS.map(full => {
+      const parts = full.trim().split(/\s+/);
+      return {
+        full: full,
+        short: `${parts[0]} ${parts[1] || ''}`.trim(),
+        middle: parts[2] || ''
+      };
+    });
+
+    let currentUser = localStorage.getItem('demo_user') || null;
+    let selectedRole = localStorage.getItem('demo_role') || 'starosta';
+    let currentPair = 1;
+    let filterOnlyUnmarked = false;
+    let revealedStudentIndex = null;
+    let revealTimer = null;
+
+    let db = JSON.parse(localStorage.getItem('journal_cache_v9') || '{}');
+    if (!db.pins) {
+      db.pins = {
+        starosta: "1111",
+        zam: "1111"
+      };
+    }
+
+    let hasPendingChanges = false;
+    let syncPushTimer = null;
+
+    function getTodayFormatted() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    let selectedDate = getTodayFormatted();
+
+    function saveLocal() {
+      localStorage.setItem('journal_cache_v9', JSON.stringify(db));
+    }
+
+    function createDefaultPairData() {
+      const defaultData = {};
+      STUDENTS.forEach((_, idx) => { defaultData[idx] = '?'; });
+      return defaultData;
+    }
+
+    function getCurrentDayData() {
+      if (!db[selectedDate]) {
+        db[selectedDate] = {
+          isLocked: false,
+          pairs: [1],
+          attendance: { 1: createDefaultPairData() },
+          logs: []
+        };
+        saveLocal();
+      }
+      return db[selectedDate];
+    }
+
+    function updateDateDisplay() {
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      
+      const days = ['Неділя', 'Понеділок', 'Вівторок', 'Середа', 'Четвер', 'П’ятниця', 'Субота'];
+      const months = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+      
+      document.getElementById('ukr-date-display').innerText = `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`;
+      document.getElementById('ukr-subdate-display').innerText = `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`;
+      document.getElementById('native-date-input').value = selectedDate;
+    }
+
+    function openDatePicker() {
+      const input = document.getElementById('native-date-input');
+      if (input.showPicker) {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    }
+
+    function changeDay(delta) {
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const d = new Date(year, month - 1, day + delta);
+      
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      
+      selectedDate = `${y}-${m}-${dayStr}`;
+      currentPair = 1;
+      updateDateDisplay();
+      render();
+    }
+
+    function setToday() {
+      selectedDate = getTodayFormatted();
+      currentPair = 1;
+      updateDateDisplay();
+      render();
+    }
+
+    function toggleLockDay() {
+      if (!currentUser) return;
+      const day = getCurrentDayData();
+      day.isLocked = !day.isLocked;
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      if (!day.logs) day.logs = [];
+
+      day.logs.unshift({
+        time: timeStr,
+        user: currentUser,
+        name: day.isLocked ? "🔒 Заблокував день" : "🔓 Розблокував день",
+        status: ""
+      });
+
+      saveLocal();
+      render();
+      queueSyncPush();
+    }
+
+    function queueSyncPush() {
+      if (BIN_ID.includes("__JSONBIN")) return;
+      hasPendingChanges = true;
+      document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-amber-400";
+      
+      clearTimeout(syncPushTimer);
+      syncPushTimer = setTimeout(async () => {
+        try {
+          await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Master-Key': API_KEY
+            },
+            body: JSON.stringify(db)
+          });
+          hasPendingChanges = false;
+          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+        } catch (e) {
+          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
+        }
+      }, 1000);
+    }
+
+    async function syncPull() {
+      if (hasPendingChanges || BIN_ID.includes("__JSONBIN")) return;
+      try {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+          headers: { 'X-Master-Key': API_KEY }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.record && Object.keys(data.record).length > 0 && !data.record.status && !data.record.test) {
+            db = data.record;
+            if (!db.pins) {
+              db.pins = { starosta: "1111", zam: "1111" };
+            }
+            saveLocal();
+            render();
+            document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
+          }
+        }
+      } catch (e) {
+        document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
+      }
+    }
+
+    function selectUser(role) {
+      selectedRole = role;
+      document.getElementById('btn-user-starosta').className = role === 'starosta' 
+        ? 'p-3 rounded-2xl border border-emerald-500 bg-emerald-500/10 font-bold text-emerald-400 text-sm' 
+        : 'p-3 rounded-2xl border border-slate-800 bg-slate-800/60 font-medium text-slate-400 text-sm';
+      document.getElementById('btn-user-zam').className = role === 'zam' 
+        ? 'p-3 rounded-2xl border border-emerald-500 bg-emerald-500/10 font-bold text-emerald-400 text-sm' 
+        : 'p-3 rounded-2xl border border-slate-800 bg-slate-800/60 font-medium text-slate-400 text-sm';
+    }
+
+    function login() {
+      const pin = document.getElementById('pin-input').value;
+      const targetPin = db.pins?.[selectedRole] || "1111";
+
+      if (pin === targetPin) {
+        currentUser = selectedRole === 'starosta' ? 'Староста' : 'Зам';
+        localStorage.setItem('demo_user', currentUser);
+        localStorage.setItem('demo_role', selectedRole);
+        document.getElementById('login-modal').classList.add('hidden');
+        document.getElementById('current-user-badge').innerText = `👤 ${currentUser}`;
+
+        if (pin === "1111") {
+          document.getElementById('change-pin-modal').classList.remove('hidden');
+        } else {
+          syncPull().then(() => render());
+        }
+      } else {
+        document.getElementById('login-error').classList.remove('hidden');
+      }
+    }
+
+    function saveNewPin() {
+      const p1 = document.getElementById('new-pin-input').value;
+      const p2 = document.getElementById('confirm-pin-input').value;
+
+      if (p1 && p1 === p2 && p1.length >= 4) {
+        if (!db.pins) db.pins = {};
+        db.pins[selectedRole] = p1;
+        saveLocal();
+        queueSyncPush();
+        document.getElementById('change-pin-modal').classList.add('hidden');
+        syncPull().then(() => render());
+      } else {
+        document.getElementById('pin-change-error').classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('demo_user');
+      localStorage.removeItem('demo_role');
+      location.reload();
+    }
+
+    function addPair() {
+      const day = getCurrentDayData();
+      if (day.isLocked) return;
+      const nextPairNum = (day.pairs[day.pairs.length - 1] || 0) + 1;
+      
+      day.pairs.push(nextPairNum);
+      const basePairData = day.attendance[1] || createDefaultPairData();
+      day.attendance[nextPairNum] = { ...basePairData };
+
+      currentPair = nextPairNum;
+      saveLocal();
+      render();
+      queueSyncPush();
+    }
+
+    function deletePair(pairNum, event) {
+      event.stopPropagation();
+      const day = getCurrentDayData();
+      if (day.isLocked) return;
+      if (day.pairs.length <= 1) {
+        alert("Не можна видалити єдину пару!");
+        return;
+      }
+      if (!confirm(`Видалити ${pairNum} пару?`)) return;
+
+      day.pairs = day.pairs.filter(p => p !== pairNum);
+      delete day.attendance[pairNum];
+
+      if (currentPair === pairNum) {
+        currentPair = day.pairs[0];
+      }
+
+      saveLocal();
+      render();
+      queueSyncPush();
+    }
+
+    function switchPair(pairNum) {
+      currentPair = pairNum;
+      render();
+    }
+
+    function toggleRevealName(index) {
+      if (revealedStudentIndex === index) {
+        revealedStudentIndex = null;
+        clearTimeout(revealTimer);
+      } else {
+        revealedStudentIndex = index;
+        clearTimeout(revealTimer);
+        revealTimer = setTimeout(() => {
+          revealedStudentIndex = null;
+          render();
+        }, 3000);
+      }
+      render();
+    }
+
+    function setStatus(index, shortName, status) {
+      const day = getCurrentDayData();
+      if (!currentUser || day.isLocked) return;
+      
+      if (!day.attendance[currentPair]) day.attendance[currentPair] = createDefaultPairData();
+      day.attendance[currentPair][index] = status;
+
+      if (!day.logs) day.logs = [];
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      
+      day.logs.unshift({
+        time: timeStr,
+        user: currentUser,
+        name: `${shortName} (п.${currentPair})`,
+        status: status
+      });
+
+      saveLocal();
+      render();
+      queueSyncPush();
+    }
+
+    function clearLogs() {
+      const day = getCurrentDayData();
+      day.logs = [];
+      saveLocal();
+      render();
+      queueSyncPush();
+    }
+
+    function render() {
+      const day = getCurrentDayData();
+      if (!day.pairs.includes(currentPair)) {
+        currentPair = day.pairs[0] || 1;
+      }
+
+      const lockBtn = document.getElementById('lock-btn');
+      if (day.isLocked) {
+        lockBtn.className = "px-2.5 py-1 rounded-xl text-xs font-semibold border transition active:scale-95 bg-rose-500/20 border-rose-500/50 text-rose-400";
+        lockBtn.innerText = "🔒 Закрито";
+      } else {
+        lockBtn.className = "px-2.5 py-1 rounded-xl text-xs font-semibold border transition active:scale-95 bg-slate-900 border-slate-800 text-slate-300";
+        lockBtn.innerText = "🔓 Відкрито";
+      }
+
+      const pairsContainer = document.getElementById('pairs-container');
+      pairsContainer.innerHTML = day.pairs.map(p => `
+        <div class="relative flex items-center group">
+          <button onclick="switchPair(${p})" class="pl-3.5 pr-7 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 ${p === currentPair ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20' : 'bg-slate-900 border border-slate-800 text-slate-400'}">
+            ${p} пара
+          </button>
+          ${!day.isLocked ? `
+            <button onclick="deletePair(${p}, event)" title="Видалити пару" class="absolute right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${p === currentPair ? 'text-slate-950/70 hover:text-slate-950 hover:bg-black/10' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}">
+              ✕
+            </button>
+          ` : ''}
+        </div>
+      `).join('') + `
+        ${!day.isLocked ? `
+          <button onclick="addPair()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/80 border border-dashed border-slate-700 text-emerald-400 whitespace-nowrap active:scale-95">
+            + Пара
+          </button>
+        ` : ''}
+      `;
+
+      const pairRecords = day.attendance[currentPair] || {};
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const container = document.getElementById('students-list');
+      container.innerHTML = '';
+
+      let cE = 0, cZP = 0, cN = 0, cNone = 0;
+
+      STUDENTS.forEach((st, index) => {
+        const status = pairRecords[index] || '?';
+
+        if (status === 'Є') cE++;
+        else if (status === 'З/П') cZP++;
+        else if (status === 'Н') cN++;
+        else cNone++;
+
+        if (filterOnlyUnmarked && status !== '?') return;
+        if (search && !st.full.toLowerCase().includes(search)) return;
+
+        const isRevealed = revealedStudentIndex === index;
+        const disabledAttr = day.isLocked ? 'disabled' : '';
+        const disabledClass = day.isLocked ? 'opacity-40 cursor-not-allowed' : 'active:scale-90';
+
+        const card = document.createElement('div');
+        card.className = "w-full bg-slate-900/90 border border-slate-800/80 rounded-2xl p-2.5 flex items-center justify-between transition-all";
+        card.innerHTML = `
+          <div onclick="toggleRevealName(${index})" class="flex items-center gap-2 overflow-hidden pr-1 cursor-pointer flex-1 select-none active:opacity-75">
+            <span class="text-[10px] font-mono text-slate-600 w-4 text-right flex-shrink-0">${index + 1}</span>
+            <div class="truncate">
+              <span class="font-medium text-xs text-slate-200">${st.short}</span>
+              ${isRevealed && st.middle ? `<span class="text-[11px] text-emerald-400 font-normal ml-1 inline-block animate-pulse">${st.middle}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex gap-1 flex-shrink-0">
+            <button ${disabledAttr} onclick="setStatus(${index}, '${st.short}', 'Є')" class="w-8 h-8 rounded-xl text-xs font-bold transition flex items-center justify-center ${disabledClass} ${status === 'Є' ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30' : 'bg-slate-800/70 text-slate-400 hover:bg-slate-800'}">Є</button>
+            <button ${disabledAttr} onclick="setStatus(${index}, '${st.short}', 'З/П')" class="w-8 h-8 rounded-xl text-[10px] font-bold transition flex items-center justify-center ${disabledClass} ${status === 'З/П' ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30' : 'bg-slate-800/70 text-slate-400 hover:bg-slate-800'}">З/П</button>
+            <button ${disabledAttr} onclick="setStatus(${index}, '${st.short}', 'Н')" class="w-8 h-8 rounded-xl text-xs font-bold transition flex items-center justify-center ${disabledClass} ${status === 'Н' ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/30' : 'bg-slate-800/70 text-slate-400 hover:bg-slate-800'}">Н</button>
+            <button ${disabledAttr} onclick="setStatus(${index}, '${st.short}', '?')" class="w-8 h-8 rounded-xl text-xs font-bold transition flex items-center justify-center ${disabledClass} ${status === '?' ? 'bg-slate-600 text-white shadow-md' : 'bg-slate-800/70 text-slate-500 hover:bg-slate-800'}">?</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      document.getElementById('count-e').innerText = cE;
+      document.getElementById('count-zp').innerText = cZP;
+      document.getElementById('count-n').innerText = cN;
+      document.getElementById('count-none').innerText = cNone;
+
+      const logs = day.logs || [];
+      const logsContainer = document.getElementById('logs-list');
+      if (logs.length === 0) {
+        logsContainer.innerHTML = '<div class="text-slate-600">Дій поки немає...</div>';
+      } else {
+        logsContainer.innerHTML = logs.slice(0, 20).map(l => `
+          <div><span class="text-slate-600">${l.time}</span> <b class="text-slate-300">${l.user}</b>: ${l.name} ${l.status ? `➔ <span class="${l.status === 'Є' ? 'text-emerald-400' : l.status === 'З/П' ? 'text-amber-400' : 'text-rose-400'} font-bold">${l.status}</span>` : ''}</div>
+        `).join('');
+      }
+    }
+
+    function toggleUnmarkedFilter() {
+      filterOnlyUnmarked = !filterOnlyUnmarked;
+      const btn = document.getElementById('filter-unmarked');
+      btn.className = filterOnlyUnmarked 
+        ? "bg-emerald-500 text-slate-950 px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition" 
+        : "bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-slate-300 font-medium active:scale-95 transition";
+      render();
+    }
+
+    function clearSearch() {
+      document.getElementById('search-input').value = '';
+      document.getElementById('clear-search').classList.add('hidden');
+      render();
+    }
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      document.getElementById('clear-search').classList.toggle('hidden', !e.target.value);
+      render();
+    });
+
+    document.getElementById('native-date-input').addEventListener('change', (e) => {
+      if (e.target.value) {
+        selectedDate = e.target.value;
+        currentPair = 1;
+        updateDateDisplay();
+        render();
+      }
+    });
+
+    setInterval(syncPull, 3000);
+
+    updateDateDisplay();
+    if (currentUser) {
+      document.getElementById('login-modal').classList.add('hidden');
+      document.getElementById('current-user-badge').innerText = `👤 ${currentUser}`;
+      syncPull().then(() => render());
+    } else {
+      render();
+    }
+  </script>
+</body>
+</html>
