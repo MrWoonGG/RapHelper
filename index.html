@@ -155,7 +155,7 @@
     let revealedStudentIndex = null;
     let revealTimer = null;
 
-    let db = JSON.parse(localStorage.getItem('journal_cache_v10') || '{}');
+    let db = JSON.parse(localStorage.getItem('journal_cache_v11') || '{}');
     if (!db.pins) {
       db.pins = {
         starosta: "1111",
@@ -178,7 +178,7 @@
     let selectedDate = getTodayFormatted();
 
     function saveLocal() {
-      localStorage.setItem('journal_cache_v10', JSON.stringify(db));
+      localStorage.setItem('journal_cache_v11', JSON.stringify(db));
     }
 
     function createDefaultPairData() {
@@ -222,6 +222,7 @@
     }
 
     function changeDay(delta) {
+      flushSyncNow();
       const [year, month, day] = selectedDate.split('-').map(Number);
       const d = new Date(year, month - 1, day + delta);
       
@@ -236,6 +237,7 @@
     }
 
     function setToday() {
+      flushSyncNow();
       selectedDate = getTodayFormatted();
       currentPair = 1;
       updateDateDisplay();
@@ -263,6 +265,23 @@
       queueSyncPush();
     }
 
+    function flushSyncNow() {
+      if (!hasPendingChanges || BIN_ID.includes("__JSONBIN")) return;
+      clearTimeout(syncPushTimer);
+      hasPendingChanges = false;
+      try {
+        fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+          method: 'PUT',
+          keepalive: true,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': API_KEY
+          },
+          body: JSON.stringify(db)
+        });
+      } catch (e) {}
+    }
+
     function queueSyncPush() {
       if (BIN_ID.includes("__JSONBIN")) return;
       hasPendingChanges = true;
@@ -273,6 +292,7 @@
         try {
           const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
             method: 'PUT',
+            keepalive: true,
             headers: {
               'Content-Type': 'application/json',
               'X-Master-Key': API_KEY
@@ -288,7 +308,7 @@
         } catch (e) {
           document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
         }
-      }, 500);
+      }, 200);
     }
 
     async function syncPull() {
@@ -374,6 +394,7 @@
     }
 
     function logout() {
+      flushSyncNow();
       localStorage.removeItem('demo_user');
       localStorage.removeItem('demo_role');
       location.reload();
@@ -417,6 +438,7 @@
     }
 
     function switchPair(pairNum) {
+      flushSyncNow();
       currentPair = pairNum;
       render();
     }
@@ -583,12 +605,22 @@
 
     document.getElementById('native-date-input').addEventListener('change', (e) => {
       if (e.target.value) {
+        flushSyncNow();
         selectedDate = e.target.value;
         currentPair = 1;
         updateDateDisplay();
         render();
       }
     });
+
+    // Гарантований досил даних при згортанні браузера чи закритті вкладки
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        flushSyncNow();
+      }
+    });
+    window.addEventListener('pagehide', flushSyncNow);
+    window.addEventListener('beforeunload', flushSyncNow);
 
     setInterval(syncPull, 1500);
 
