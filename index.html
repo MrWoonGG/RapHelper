@@ -48,7 +48,7 @@
         <div>
           <h1 class="font-bold text-base tracking-tight text-white flex items-center gap-2">
             Журнал Групи
-            <span id="sync-status" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span id="sync-status" class="w-2 h-2 rounded-full bg-emerald-500 transition-colors"></span>
           </h1>
           <span id="current-user-badge" class="text-xs text-emerald-400 font-medium">👤 Гість</span>
         </div>
@@ -144,8 +144,7 @@
       const parts = full.trim().split(/\s+/);
       return {
         full: full,
-        short: `${parts[0]} ${parts[1] || ''}`.trim(),
-        middle: parts[2] || ''
+        short: `${parts[0]} ${parts[1] || ''}`.trim()
       };
     });
 
@@ -156,7 +155,7 @@
     let revealedStudentIndex = null;
     let revealTimer = null;
 
-    let db = JSON.parse(localStorage.getItem('journal_cache_v9') || '{}');
+    let db = JSON.parse(localStorage.getItem('journal_cache_v10') || '{}');
     if (!db.pins) {
       db.pins = {
         starosta: "1111",
@@ -166,6 +165,7 @@
 
     let hasPendingChanges = false;
     let syncPushTimer = null;
+    let lastETag = null;
 
     function getTodayFormatted() {
       const now = new Date();
@@ -178,7 +178,7 @@
     let selectedDate = getTodayFormatted();
 
     function saveLocal() {
-      localStorage.setItem('journal_cache_v9', JSON.stringify(db));
+      localStorage.setItem('journal_cache_v10', JSON.stringify(db));
     }
 
     function createDefaultPairData() {
@@ -271,7 +271,7 @@
       clearTimeout(syncPushTimer);
       syncPushTimer = setTimeout(async () => {
         try {
-          await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+          const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -279,21 +279,37 @@
             },
             body: JSON.stringify(db)
           });
+          if (res.ok) {
+            const etag = res.headers.get('etag');
+            if (etag) lastETag = etag;
+          }
           hasPendingChanges = false;
-          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
         } catch (e) {
           document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-rose-500";
         }
-      }, 1000);
+      }, 500);
     }
 
     async function syncPull() {
       if (hasPendingChanges || BIN_ID.includes("__JSONBIN")) return;
       try {
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
-          headers: { 'X-Master-Key': API_KEY }
-        });
+        const headers = { 'X-Master-Key': API_KEY };
+        if (lastETag) {
+          headers['If-None-Match'] = lastETag;
+        }
+
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers });
+        
+        if (res.status === 304) {
+          document.getElementById('sync-status').className = "w-2 h-2 rounded-full bg-emerald-500";
+          return;
+        }
+
         if (res.ok) {
+          const etag = res.headers.get('etag');
+          if (etag) lastETag = etag;
+
           const data = await res.json();
           if (data.record && Object.keys(data.record).length > 0 && !data.record.status && !data.record.test) {
             db = data.record;
@@ -514,8 +530,9 @@
           <div onclick="toggleRevealName(${index})" class="flex items-center gap-2 overflow-hidden pr-1 cursor-pointer flex-1 select-none active:opacity-75">
             <span class="text-[10px] font-mono text-slate-600 w-4 text-right flex-shrink-0">${index + 1}</span>
             <div class="truncate">
-              <span class="font-medium text-xs text-slate-200">${st.short}</span>
-              ${isRevealed && st.middle ? `<span class="text-[11px] text-emerald-400 font-normal ml-1 inline-block animate-pulse">${st.middle}</span>` : ''}
+              <span class="font-medium text-xs ${isRevealed ? 'text-emerald-400 font-semibold' : 'text-slate-200'} transition-colors">
+                ${isRevealed ? st.full : st.short}
+              </span>
             </div>
           </div>
           <div class="flex gap-1 flex-shrink-0">
@@ -573,7 +590,7 @@
       }
     });
 
-    setInterval(syncPull, 3000);
+    setInterval(syncPull, 1500);
 
     updateDateDisplay();
     if (currentUser) {
